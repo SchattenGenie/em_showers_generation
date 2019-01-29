@@ -1,0 +1,2 @@
+data/mcdata_taue2.root filter=lfs diff=lfs merge=lfs -text
+data/showers.csv filter=lfs diff=lfs merge=lfs -text
