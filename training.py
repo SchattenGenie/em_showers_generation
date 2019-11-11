@@ -239,7 +239,7 @@ def generate_graph(model, edge_nn, features_nn, max_prev_node, test_batch_energi
         adj_pred = decode_adj(y_pred_long_data[i].detach().cpu().numpy())
         emb = embs[i]
         # G_pred = get_graph(adj_pred) # get a graph from zero-padded adj
-        G_pred = nx.from_numpy_matrix(adj_pred) # get a graph from zero-padded adj
+        G_pred = nx.from_numpy_matrix(adj_pred)  # get a graph from zero-padded adj
         G_pred = max(nx.connected_component_subgraphs(G_pred), key=len)
         nodes = list(G_pred.nodes())
         G_pred = nx.bfs_tree(G_pred, nodes[0])
@@ -248,7 +248,6 @@ def generate_graph(model, edge_nn, features_nn, max_prev_node, test_batch_energi
         emb = emb[nodes]
         G_pred = nx.DiGraph(adj_pred)
 
-        # TODO: clean from nodes with 0 degree
         # for nodes with
         node_in_degree = list(G_pred.in_degree())
         node_in_degree = sorted(node_in_degree, key=lambda x: x[0])
@@ -259,7 +258,7 @@ def generate_graph(model, edge_nn, features_nn, max_prev_node, test_batch_energi
         node_out_degree = torch.tensor([nod[1] for nod in node_out_degree], dtype=torch.float32).to(device).view(-1, 1)
 
         node_order = torch.tensor(list(G_pred.nodes())).float().to(device).view(-1, 1) / 100.
-        if len(G_pred) <= 2:  # TODO: is it correct?
+        if len(G_pred) <= 2:
             continue
 
         edges = list(nx.bfs_edges(G_pred, 0))
@@ -406,10 +405,10 @@ def train(model, edge_nn, features_nn, dataset_loader, optimizer, device, experi
             loss_weights={
                 'll_bce': 1.,
                 'll_logits': 1.,
-                'll_smoothness': 0.1,
-                'll_mse': 0.5,
-                'll_IP_left': 0.5,
-                'll_IP_right': 0.5
+                'll_smoothness': 0.0,
+                'll_mse': 10.,
+                'll_IP_left': 0.0,
+                'll_IP_right': 0.0
             }, signal_gen=signal_gen, max_prev_node=max_prev_node, device=device)
         try:
             experiment.log_metrics({key: np.mean(metrics[key]) for key in metrics})
