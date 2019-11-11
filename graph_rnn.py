@@ -1,119 +1,71 @@
-import numpy as np
-import networkx as nx
-
-def bfs_seq(G, start_id):
-    '''
-    get a bfs node sequence
-    :param G:
-    :param start_id:
-    :return:
-    '''
-    dictionary = dict(nx.bfs_successors(G, start_id))
-    start = [start_id]
-    output = [start_id]
-    while len(start) > 0:
-        next = []
-        while len(start) > 0:
-            current = start.pop(0)
-            neighbor = dictionary.get(current)
-            if neighbor is not None:
-                #### a wrong example, should not permute here!
-                # shuffle(neighbor)
-                next = next + neighbor
-        output = output + next
-        start = next
-    return output
+import torch
+from torch import nn
+from torch.nn.utils.rnn import pack_padded_sequence, pack_sequence, pad_sequence, pad_packed_sequence
 
 
+class GraphRNN(nn.Module):
+    def __init__(self, input_size, embedding_size, hidden_size,
+                 num_layers, has_input=True, has_output=False, output_size=None):
+        super(GraphRNN, self).__init__()
+        self.num_layers = num_layers
+        self.hidden_size = hidden_size
+        self.has_input = has_input
+        self.has_output = has_output
 
-def encode_adj(adj, max_prev_node=10, is_full = False):
-    '''
-    :param adj: n*n, rows means time step, while columns are input dimension
-    :param max_degree: we want to keep row number, but truncate column numbers
-    :return:
-    '''
-    if is_full:
-        max_prev_node = adj.shape[0] - 1
+        if has_input:
+            self.input = nn.Linear(input_size, embedding_size)
+            self.rnn = nn.GRU(input_size=embedding_size, hidden_size=hidden_size,
+                              num_layers=num_layers, batch_first=True, dropout=0.15)
+        else:
+            self.rnn = nn.GRU(input_size=input_size, hidden_size=hidden_size,
+                              num_layers=num_layers, batch_first=True, dropout=0.15)
+        if has_output:
+            self.output = nn.Sequential(
+                nn.Linear(hidden_size, embedding_size),
+                nn.Tanh(),
+                nn.Linear(embedding_size, output_size)
+            )
 
-    # pick up lower tri
-    adj = np.tril(adj, k=-1)
-    n = adj.shape[0]
-    adj = adj[1:n, 0:n-1]
+        self.relu = nn.ReLU()
+        self.tanh = nn.Tanh()
+        # initialize
+        self.hidden_emb = nn.Sequential(
+            nn.Linear(1, self.hidden_size)
+        )
+        self.hidden = None  # need initialize before forward run
 
-    # use max_prev_node to truncate
-    # note: now adj is a (n-1)*(n-1) matrix
-    adj_output = np.zeros((adj.shape[0], max_prev_node))
-    for i in range(adj.shape[0]):
-        input_start = max(0, i - max_prev_node + 1)
-        input_end = i + 1
-        output_start = max_prev_node + input_start - input_end
-        output_end = max_prev_node
-        adj_output[i, output_start:output_end] = adj[i, input_start:input_end]
-        adj_output[i,:] = adj_output[i,:][::-1] # reverse order
+    def init_hidden(self, input, batch_size):
+        hidden_emb = torch.cat([
+            self.hidden_emb(input).view(1, batch_size, self.hidden_size),
+            torch.zeros(self.num_layers - 1, batch_size, self.hidden_size).to(input)
+        ])
+        return hidden_emb
 
-    return adj_output
+    def forward(self, input_raw, pack=False, input_len=None):
+        # input_raw = [batch_size, seq_length, input_size]
+        output_raw_emb, output_raw, output_len = None, None, None
 
-def decode_adj(adj_output):
-    '''
-        recover to adj from adj_output
-        note: here adj_output have shape (n-1)*m
-    '''
-    max_prev_node = adj_output.shape[1]
-    adj = np.zeros((adj_output.shape[0], adj_output.shape[0]))
-    for i in range(adj_output.shape[0]):
-        input_start = max(0, i - max_prev_node + 1)
-        input_end = i + 1
-        output_start = max_prev_node + max(0, i - max_prev_node + 1) - (i + 1)
-        output_end = max_prev_node
-        adj[i, input_start:input_end] = adj_output[i,::-1][output_start:output_end] # reverse order
-    adj_full = np.zeros((adj_output.shape[0]+1, adj_output.shape[0]+1))
-    n = adj_full.shape[0]
-    adj_full[1:n, 0:n-1] = np.tril(adj, 0)
-    adj_full = adj_full + adj_full.T
+        if self.has_input:
+            input = self.input(input_raw)
+            input = self.tanh(input)
+        else:
+            input = input_raw
+        if pack:
+            pass  # input = pack_sequence(input)
 
-    return adj_full
+        # output_raw_emb = [batch_size, seq_length, output_size]
+        output_raw_emb, self.hidden = self.rnn(input, self.hidden)
+        if pack:
+            output_raw_emb, output_len = pad_packed_sequence(output_raw_emb, batch_first=True)
 
+        if self.has_output:
+            output_raw = self.output(output_raw_emb)
 
-def encode_adj_flexible(adj):
-    '''
-    return a flexible length of output
-    note that here there is no loss when encoding/decoding an adj matrix
-    :param adj: adj matrix
-    :return:
-    '''
-    # pick up lower tri
-    adj = np.tril(adj, k=-1)
-    n = adj.shape[0]
-    adj = adj[1:n, 0:n-1]
+        if pack:
+            output_raw_packed = pack_padded_sequence(output_raw, lengths=output_len, batch_first=True)
+            return output_raw_emb, output_raw, output_len
 
-    adj_output = []
-    input_start = 0
-    for i in range(adj.shape[0]):
-        input_end = i + 1
-        adj_slice = adj[i, input_start:input_end]
-        adj_output.append(adj_slice)
-        non_zero = np.nonzero(adj_slice)[0]
-        input_start = input_end-len(adj_slice)+np.amin(non_zero)
-
-    return adj_output
+        # return hidden state at each time step
+        return output_raw_emb, output_raw, output_len
 
 
-
-def decode_adj_flexible(adj_output):
-    '''
-    return a flexible length of output
-    note that here there is no loss when encoding/decoding an adj matrix
-    :param adj: adj matrix
-    :return:
-    '''
-    adj = np.zeros((len(adj_output), len(adj_output)))
-    for i in range(len(adj_output)):
-        output_start = i+1-len(adj_output[i])
-        output_end = i+1
-        adj[i, output_start:output_end] = adj_output[i]
-    adj_full = np.zeros((len(adj_output)+1, len(adj_output)+1))
-    n = adj_full.shape[0]
-    adj_full[1:n, 0:n-1] = np.tril(adj, 0)
-    adj_full = adj_full + adj_full.T
-
-    return adj_full
