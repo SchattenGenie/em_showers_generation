@@ -29,6 +29,8 @@ from graph_rnn_tools import decode_adj
 import networkx as nx
 import torch_cluster
 import torch_geometric
+import os
+
 
 shower_adj = namedtuple('shower_adj', field_names=['x', 'adj', 'ele_p'])
 graphrnn_shower = namedtuple('graphrnn_shower', field_names=['x',
@@ -331,7 +333,7 @@ def train_epoch(model, edge_nn, features_nn, dataset_loader, optimizer, device, 
             #                                                     features=features,
             #                                                     add_dim=len(showers_batch) + 1)
 
-        test_batch_energies = torch.tensor(np.random.uniform(low=1, high=5, size=(100, 1))).float().to(device)
+        test_batch_energies = torch.tensor(np.random.uniform(low=1, high=5, size=(20, 1))).float().to(device)
         g = generate_graph(model=model,
                            edge_nn=edge_nn,
                            features_nn=features_nn,
@@ -406,7 +408,7 @@ def train(model, edge_nn, features_nn, dataset_loader, optimizer, device, experi
                 'll_bce': 1.,
                 'll_logits': 1.,
                 'll_smoothness': 0.0,
-                'll_mse': 10.,
+                'll_mse': 0.,
                 'll_IP_left': 0.0,
                 'll_IP_right': 0.0
             }, signal_gen=signal_gen, max_prev_node=max_prev_node, device=device)
@@ -436,24 +438,37 @@ def shower_to_device(shower, device):
                            )
 
 
+def get_freer_gpu():
+    """
+    Function to get the freest GPU available in the system
+    :return:
+    """
+    os.system('nvidia-smi -q -d Memory |grep -A4 GPU|grep Free >tmp')
+    memory_available = [int(x.split()[2]) for x in open('tmp', 'r').readlines()]
+    return np.argmax(memory_available)
+
 
 def main(
         datafile="./data/showers_all_energies_1_5.pkl",
-        max_prev_node=8,
+        max_prev_node=12,
         embedding_size=196,
         edge_rnn_embedding_size=16,
         work_space='schattengenie',
         project_name='shower_generation'
 ):
-    device = torch.device('cuda:3')
+    if torch.cuda.is_available():
+        device = torch.device('cuda:{}'.format(get_freer_gpu()))
+    else:
+        device = torch.device('cpu')
+    print("Using device = {}".format(device))
 
-    showers = pickle.load(open(datafile, "rb"))[:300]
+    showers = pickle.load(open(datafile, "rb"))[:1500]
     print(len(showers))
     experiment = Experiment(project_name=project_name, workspace=work_space)
 
     dataset_loader = torch.utils.data.DataLoader(
         TorchShowers(showers, max_prev_node=max_prev_node, device=device, q=0.05),
-        pin_memory=True, batch_size=100, shuffle=True,
+        pin_memory=True, batch_size=50, shuffle=True,
         num_workers=1, collate_fn=collate_fn
     )
 

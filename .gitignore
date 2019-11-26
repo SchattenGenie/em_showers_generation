@@ -1,2 +1,5 @@
 *.pcl
 *.pkl
+.ipynb_checkpoints
+*.pyc
+*.out
