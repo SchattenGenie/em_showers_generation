@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import swats
 from torch.nn import Sequential
 from torch.distributions import Bernoulli
 from torch.nn.utils import clip_grad_norm_
@@ -30,6 +29,7 @@ import networkx as nx
 import torch_cluster
 import torch_geometric
 import os
+import click
 
 
 shower_adj = namedtuple('shower_adj', field_names=['x', 'adj', 'ele_p'])
@@ -447,12 +447,26 @@ def get_freer_gpu():
     memory_available = [int(x.split()[2]) for x in open('tmp', 'r').readlines()]
     return np.argmax(memory_available)
 
-
+@click.command()
+@click.option('--datafile', type=str, default="./data/showers_all_energies_1_5.pkl")
+@click.option('--max_prev_node', type=int, default=12)
+@click.option('--embedding_size', type=str, default=196)
+@click.option('--edge_rnn_embedding_size', type=int, default=16)
+@click.option('--embedding_size_gcn', type=int, default=4)
+@click.option('--num_layers_gcn', type=int, default=3)
+@click.option('--mixture_size', type=int, default=5)
+@click.option('--lr', type=float, default=1e-4)
+@click.option('--project_name', type=str, prompt='Enter project name')
+@click.option('--work_space', type=str, prompt='Enter workspace name')
 def main(
         datafile="./data/showers_all_energies_1_5.pkl",
         max_prev_node=12,
         embedding_size=196,
         edge_rnn_embedding_size=16,
+        embedding_size_gcn=4,
+        num_layers_gcn=4,
+        mixture_size=12,
+        lr=1e-4,
         work_space='schattengenie',
         project_name='shower_generation'
 ):
@@ -462,7 +476,7 @@ def main(
         device = torch.device('cpu')
     print("Using device = {}".format(device))
 
-    showers = pickle.load(open(datafile, "rb"))[:1500]
+    showers = pickle.load(open(datafile, "rb"))
     print(len(showers))
     experiment = Experiment(project_name=project_name, workspace=work_space)
 
@@ -488,16 +502,16 @@ def main(
                        has_output=True,
                        output_size=1).to(device)
 
-    features_nn = FeaturesGCN(dim_in=embedding_size + 3, # node order here
-                              embedding_size=4,
-                              num_layers_gcn=3,
+    features_nn = FeaturesGCN(dim_in=embedding_size + 3,  # node order here
+                              embedding_size=embedding_size_gcn,
+                              num_layers_gcn=num_layers_gcn,
                               num_layers_dense=0,
-                              mixture_size=12,
+                              mixture_size=mixture_size,
                               dim_out=5).to(device=device)
 
     parameters = list(features_nn.parameters()) + list(model.parameters()) + list(edge_nn.parameters())
-    optimizer = torch.optim.Adam(parameters, lr=1e-4, weight_decay=1e-4)
-    # optimizer = swats.SWATS(parameters, lr=0.5e-3, verbose=True)
+    optimizer = torch.optim.Adam(parameters, lr=lr, weight_decay=1e-4)
+
     train(
         model=model,
         edge_nn=edge_nn,
