@@ -10,12 +10,6 @@ python training.py --datafile ./data/showers_all_energies_1_5.pkl  --max_prev_no
 --project_name shower_generation --work_space schattengenie
 ```
 
-
-@click.option('--embedding_size_gcn', type=int, default=4)
-@click.option('--num_layers_gcn', type=int, default=3)
-@click.option('--mixture_size', type=int, default=5)
-@click.option('--lr', type=float, default=1e-4)
-
 Weights of neural networks will be saved on disk each 10 epochs. 
 `--max_prev_node 12 --embedding_size 196 --edge_rnn_embedding_size 16` are architecture parameters of GraphRNN, please refer to original [paper](https://arxiv.org/abs/1802.08773).
 
